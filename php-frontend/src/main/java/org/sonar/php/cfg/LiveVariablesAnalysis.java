@@ -31,11 +31,17 @@ import java.util.Set;
 import org.sonar.plugins.php.api.symbols.Symbol;
 import org.sonar.plugins.php.api.symbols.SymbolTable;
 import org.sonar.plugins.php.api.tree.Tree;
+import org.sonar.plugins.php.api.tree.declaration.VariableDeclarationTree;
+import org.sonar.plugins.php.api.tree.expression.ArrayAssignmentPatternElementTree;
+import org.sonar.plugins.php.api.tree.expression.ArrayInitializerBracketTree;
+import org.sonar.plugins.php.api.tree.expression.ArrayInitializerFunctionTree;
 import org.sonar.plugins.php.api.tree.expression.ArrayInitializerTree;
 import org.sonar.plugins.php.api.tree.expression.ArrayPairTree;
 import org.sonar.plugins.php.api.tree.expression.AssignmentExpressionTree;
 import org.sonar.plugins.php.api.tree.expression.ExpressionTree;
 import org.sonar.plugins.php.api.tree.expression.FunctionCallTree;
+import org.sonar.plugins.php.api.tree.expression.UnaryExpressionTree;
+import org.sonar.plugins.php.api.tree.expression.VariableIdentifierTree;
 import org.sonar.plugins.php.api.tree.statement.ExpressionStatementTree;
 import org.sonar.plugins.php.api.visitors.PHPVisitorCheck;
 
@@ -88,7 +94,7 @@ public class LiveVariablesAnalysis {
     private final SymbolTable symbols;
     // 'gen' or 'use' - variables that are being read in the block
     private final Set<Symbol> gen = new HashSet<>();
-    // 'kill' or 'def' - variables that are being written before being read in the block
+    // 'kill' or 'def' - variables that are being written (TODO before being read in the block)
     private final Set<Symbol> kill = new HashSet<>();
     // the 'in' and 'out' change during the algorithm
     private Set<Symbol> in = new HashSet<>();
@@ -122,7 +128,7 @@ public class LiveVariablesAnalysis {
       // propagate the out values backwards, from successors
       out.clear();
       block.successors().stream().map(liveVariablesPerBlock::get).map(df -> df.in).forEach(out::addAll);
-      // in = union + (out - kill)
+      // in = gen + (out - kill)
       Set<Symbol> newIn = new HashSet<>(gen);
       newIn.addAll(Sets.difference(out, kill));
       boolean inHasChanged = !newIn.equals(in);
@@ -138,89 +144,126 @@ public class LiveVariablesAnalysis {
      */
     private void initialize() {
       // process elements from bottom to top
-      Set<Tree> assignmentLHS = new HashSet<>();
-      for (Tree tree : Lists.reverse(block.elements())) {
-        Tree element = tree;
-        if (tree.is(Tree.Kind.EXPRESSION_STATEMENT)) {
-          element = ((ExpressionStatementTree) tree).expression();
-        }
-        switch (element.getKind()) {
-          case ASSIGNMENT:
-            visitAssignment(assignmentLHS, (AssignmentExpressionTree) element);
-            break;
-          case VARIABLE_IDENTIFIER:
-            addToGen(element);
-            break;
-          case VARIABLE_DECLARATION:
-            visitVariableDeclaration(element);
-            break;
-          case FUNCTION_CALL:
-            visitFunctionCall((FunctionCallTree) element);
-            break;
-          case ARRAY_INITIALIZER_FUNCTION:
-          case ARRAY_INITIALIZER_BRACKET:
-            visitArrayInitializer((ArrayInitializerTree) element);
-            break;
-          default:
-            // ignore
-        }
-      }
-    }
+      Set<Symbol> killedVars = new HashSet<>();
 
-    private void visitArrayInitializer(ArrayInitializerTree arrayInitializer) {
-      for (ArrayPairTree arrayPair : arrayInitializer.arrayPairs()) {
-        if (arrayPair.key().is(Tree.Kind.VARIABLE_IDENTIFIER)) {
-          addToGen(arrayPair.key());
-        }
-        if (arrayPair.value().is(Tree.Kind.VARIABLE_IDENTIFIER)) {
-          addToGen(arrayPair.value());
+      for (Tree tree : block.elements()) {
+
+        ReadWriteVisitor visitor = new ReadWriteVisitor(symbols);
+        tree.accept(visitor);
+
+        Map<Symbol, EnumSet<VariableState>> stateMap = visitor.getState();
+        for (Map.Entry<Symbol, EnumSet<VariableState>> variableWithState : stateMap.entrySet()) {
+          EnumSet<VariableState> state = variableWithState.getValue();
+
+          if (state.size() == 2) {
+            if (!killedVars.contains(variableWithState.getKey())) {
+              gen.add(variableWithState.getKey());
+            }
+          }
+
+          if (state.size() == 1 && state.contains(VariableState.READ)) {
+            if (!killedVars.contains(variableWithState.getKey())) {
+              gen.add(variableWithState.getKey());
+            }
+          }
+
+          if (state.contains(VariableState.WRITE) &&
+            !state.contains(VariableState.READ)) {
+
+            kill.add(variableWithState.getKey());
+            killedVars.add(variableWithState.getKey());
+          }
+
         }
       }
     }
 
-    private void visitFunctionCall(FunctionCallTree functionCallTree) {
-      for (ExpressionTree arg : functionCallTree.arguments()) {
-        if (arg.is(Tree.Kind.VARIABLE_IDENTIFIER)) {
-          addToGen(arg);
-        }
-      }
-    }
-
-    private void visitVariableDeclaration(Tree element) {
-      Symbol symbol;
-      symbol = symbols.getSymbol(element);
-      if (symbol != null) {
-        // TODO is local?
-        kill.add(symbol);
-        gen.remove(symbol);
-      }
-    }
-
-    private void visitAssignment(Set<Tree> assignmentLHS, AssignmentExpressionTree element) {
-      ExpressionTree lhs = element.variable();
-      Symbol symbol = null;
-      if (lhs.is(Tree.Kind.VARIABLE_IDENTIFIER)) {
-        symbol = symbols.getSymbol(lhs);
-      }
-      if (symbol != null) {
-        assignmentLHS.add(lhs);
-        kill.add(symbol);
-        gen.remove(symbol);
-      }
-    }
-
-    private void addToGen(Tree tree) {
-      Symbol symbol = symbols.getSymbol(tree);
-      if (symbol != null) {
-        gen.add(symbol);
-      }
-    }
   }
 
-  private static class TreeVisitor extends PHPVisitorCheck {
+  private static class ReadWriteVisitor extends PHPVisitorCheck {
+    private final SymbolTable symbols;
+    private final Map<Symbol, EnumSet<VariableState>> variables = new HashMap<>();
 
-    static Map<Symbol, EnumSet<VariableState>> visit(Tree tree) {
-      return null;
+    ReadWriteVisitor(SymbolTable symbols) {
+      this.symbols = symbols;
     }
+
+    Map<Symbol, EnumSet<VariableState>> getState() {
+      return variables;
+    }
+
+    @Override
+    public void visitAssignmentExpression(AssignmentExpressionTree tree) {
+      visitAssignedVariable(tree.variable());
+      tree.value().accept(this);
+    }
+
+    @Override
+    public void visitArrayAssignmentPatternElement(ArrayAssignmentPatternElementTree tree) {
+      visitAssignedVariable(tree.variable());
+      super.visitArrayAssignmentPatternElement(tree);
+    }
+
+    @Override
+    public void visitVariableIdentifier(VariableIdentifierTree tree) {
+      visitReadVariable(tree);
+      super.visitVariableIdentifier(tree);
+    }
+
+    // TODO is the below accurrate?
+    @Override
+    public void visitVariableDeclaration(VariableDeclarationTree tree) {
+      visitAssignedVariable(tree.identifier());
+      super.visitVariableDeclaration(tree);
+    }
+
+    @Override
+    public void visitPrefixExpression(UnaryExpressionTree tree) {
+      visitReadVariable(tree);
+      visitAssignedVariable(tree);
+      super.visitPrefixExpression(tree);
+    }
+
+    private boolean visitAssignedVariable(Tree tree) {
+      if (!tree.is(Tree.Kind.VARIABLE_IDENTIFIER)) {
+        return false;
+      }
+      Symbol varSym = symbols.getSymbol(tree);
+      EnumSet<VariableState> varStates = variables.computeIfAbsent(varSym, s -> EnumSet.noneOf(VariableState.class));
+      varStates.add(VariableState.WRITE);
+      return true;
+    }
+
+    private void visitReadVariable(Tree tree) {
+      if (!tree.is(Tree.Kind.VARIABLE_IDENTIFIER)) {
+        return;
+      }
+      Symbol varSym = symbols.getSymbol(tree);
+      EnumSet<VariableState> varStates = variables.computeIfAbsent(varSym, s -> EnumSet.noneOf(VariableState.class));
+      varStates.add(VariableState.READ);
+    }
+
+    // are the below necessary at all? we're doing this in visitVariableIdentifier
+    /*
+     * @Override
+     * public void visitArrayInitializerFunction(ArrayInitializerFunctionTree tree) {
+     * visitArrayInitializer(tree);
+     * super.visitArrayInitializerFunction(tree);
+     * }
+     * 
+     * @Override
+     * public void visitArrayInitializerBracket(ArrayInitializerBracketTree tree) {
+     * visitArrayInitializer(tree);
+     * super.visitArrayInitializerBracket(tree);
+     * }
+     * 
+     * private void visitArrayInitializer(ArrayInitializerTree arrayInitializer) {
+     * for (ArrayPairTree arrayPair : arrayInitializer.arrayPairs()) {
+     * 
+     * visitReadVariable(arrayPair.key());
+     * visitReadVariable(arrayPair.value());
+     * }
+     * }
+     */
   }
 }

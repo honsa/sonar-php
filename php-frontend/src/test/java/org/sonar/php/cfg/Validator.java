@@ -103,10 +103,10 @@ class Validator {
 
       String blockTestId = expectedCfg.testId(actualBlock);
       LiveVariablesAnalysis.LiveVariables actualLiveVariables = actualLva.getLiveVariables(actualBlock);
-      assertVariablesAreEqual("Live In Variables", actualLiveVariables.getIn(), expectedCfg.expectedLiveInVariables(actualBlock), blockTestId, debugDotNotation);
-      assertVariablesAreEqual("Live Out Variables", actualLiveVariables.getOut(), expectedCfg.expectedLiveOutVariables(actualBlock), blockTestId, debugDotNotation);
       assertVariablesAreEqual("Gen Variables", actualLiveVariables.getGen(), expectedCfg.expectedGenVariables(actualBlock), blockTestId, debugDotNotation);
       assertVariablesAreEqual("Killed Variables", actualLiveVariables.getKill(), expectedCfg.expectedKilledVariables(actualBlock), blockTestId, debugDotNotation);
+      assertVariablesAreEqual("Live In Variables", actualLiveVariables.getIn(), expectedCfg.expectedLiveInVariables(actualBlock), blockTestId, debugDotNotation);
+      assertVariablesAreEqual("Live Out Variables", actualLiveVariables.getOut(), expectedCfg.expectedLiveOutVariables(actualBlock), blockTestId, debugDotNotation);
     }
   }
 
@@ -114,12 +114,12 @@ class Validator {
     int actualSize = actualVariables.size();
     int expectedSize = expectedVariables.size();
     assertThat(actualSize)
-        .withFailMessage(buildDebugMessage(variableType + " size expected " + expectedSize + " and is " + actualSize , blockTestId, debugDotNotation))
-        .isEqualTo(expectedSize);
+      .withFailMessage(buildDebugMessage(variableType + " size expected " + expectedSize + " and is " + actualSize, blockTestId, debugDotNotation))
+      .isEqualTo(expectedSize);
     Set<String> actualVariableNames = actualVariables.stream().map(Symbol::name).collect(Collectors.toSet());
     assertThat(actualVariableNames)
-        .withFailMessage(buildDebugMessage(variableType + " elements differ ", blockTestId, debugDotNotation))
-        .containsOnlyElementsOf(expectedVariables);
+      .withFailMessage(buildDebugMessage(variableType + " elements differ ", blockTestId, debugDotNotation))
+      .containsOnlyElementsOf(expectedVariables);
   }
 
   private static void assertSuccessors(CfgBlock actualBlock, ExpectedCfgStructure expectedCfg, String debugDotNotation) {

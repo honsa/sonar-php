@@ -28,6 +28,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.sonar.plugins.php.api.tree.Tree;
 import org.sonar.plugins.php.api.tree.declaration.NamespaceNameTree;
@@ -217,15 +218,16 @@ class ExpectedCfgStructure {
             elem = Integer.parseInt(getValue(assignment.value()));
           } else if (isNamespaceTreeWithValue(name, "syntSucc")) {
             syntacticSuccessor = getValue(assignment.value());
-          } else if (isNamespaceTreeWithValue(name, "liveIn")) {
-            liveIn = getStrings(assignment.value());
-          } else if (isNamespaceTreeWithValue(name, "liveOut")) {
-            liveOut = getStrings(assignment.value());
           } else if (isNamespaceTreeWithValue(name, "gen")) {
-            gen = getStrings(assignment.value());
+            gen = getVariableStrings(assignment.value());
           } else if (isNamespaceTreeWithValue(name, "kill")) {
-            kill = getStrings(assignment.value());
+            kill = getVariableStrings(assignment.value());
+          } else if (isNamespaceTreeWithValue(name, "liveIn")) {
+            liveIn = getVariableStrings(assignment.value());
+          } else if (isNamespaceTreeWithValue(name, "liveOut")) {
+            liveOut = getVariableStrings(assignment.value());
           }
+
         }
 
         if (id != null) {
@@ -273,7 +275,15 @@ class ExpectedCfgStructure {
 
     }
 
+    private static String[] getVariableStrings(Tree tree) {
+      return getStringList(tree).stream().map(s -> "$" + s).collect(Collectors.toList()).toArray(new String[] {});
+    }
+
     private static String[] getStrings(Tree tree) {
+      return getStringList(tree).toArray(new String[] {});
+    }
+
+    private static List<String> getStringList(Tree tree) {
       List<String> result = new ArrayList<>();
       if (tree instanceof ArrayInitializerBracketTree) {
         ArrayInitializerBracketTree initializer = (ArrayInitializerBracketTree) tree;
@@ -283,7 +293,7 @@ class ExpectedCfgStructure {
       } else {
         throw new UnsupportedOperationException("Expecting array, got '" + tree.toString() + "'");
       }
-      return result.toArray(new String[] {});
+      return result;
     }
 
     private static boolean isNamespaceTreeWithValue(@Nullable Tree tree, String s) {
@@ -295,9 +305,6 @@ class ExpectedCfgStructure {
     private static String getValue(Tree tree) {
       if (tree.is(Tree.Kind.NUMERIC_LITERAL) || tree.is(Tree.Kind.REGULAR_STRING_LITERAL)) {
         return ((LiteralTree) tree).value();
-      }
-      if (tree.is(Tree.Kind.VARIABLE_IDENTIFIER)) {
-        return ((VariableIdentifierTree) tree).text();
       }
       if (tree.is(Tree.Kind.NAMESPACE_NAME)) {
         return ((NamespaceNameTree) tree).fullName();

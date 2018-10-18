@@ -54,37 +54,62 @@ public class LiveVariablesAnalysisTest extends PHPTreeModelTest {
   @Test
   public void test_simple_kill() {
     verifyLiveVariableAnalysis("" +
-      "block( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [$foo, $bar, $qix]);" +
+      "block( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [foo, bar, qix]);" +
       "$foo = 1;" +
       "$bar = bar();" +
       "$qix = 1 + 2;");
-
   }
 
   @Test
   public void test_simple_gen() {
     verifyLiveVariableAnalysis("" +
-      "block( succ = [END], liveIn = [$foo, $bar], liveOut = [], gen = [$foo, $bar]);" +
+      "block( succ = [END], liveIn = [foo, bar], liveOut = [], gen = [foo, bar]);" +
       "foo($foo, $bar);");
+  }
+
+  @Test
+  public void test_complex_reads_and_writes() {
+    verifyLiveVariableAnalysis("" +
+      "block( succ = [END], liveIn = [a], liveOut = [], gen = [a], kill = []);" +
+      "read($a);" +
+      "read($a);");
+    verifyLiveVariableAnalysis("" +
+      "block( succ = [END], liveIn = [a], liveOut = [], gen = [a], kill = []);" +
+      "$a = read($a);" +
+      "read($a);");
+  }
+
+  @Test
+  public void test_write_before_read() {
+
+    verifyLiveVariableAnalysis("" +
+      "condition( succ = [body, END], liveIn = [], liveOut = [], gen = [], kill = [a]);" +
+      "$a = 1;" +
+      "foo($a);" +
+      "if (true) {" +
+      "  body( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [a]);" +
+      "  $a = 1;" +
+      "  foo($a);" +
+      "}");
   }
 
   @Test
   public void test_gen_kill() {
     verifyLiveVariableAnalysis("" +
-      "condition( succ = [body, END], liveIn = [], liveOut = [], gen = [], kill = [$a]);" +
+      "condition( succ = [body, END], liveIn = [x], liveOut = [], gen = [x], kill = [a]);" +
       "$a = $x + 1;" +
       "foo($a);" +
       "if (true) {" +
-      "  body( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [$x]);" +
+      "  body( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [x]);" +
       "  $x = 1;" +
       "}");
 
     verifyLiveVariableAnalysis("" +
-      "condition( succ = [body, END], liveIn = [$a], liveOut = [], gen = [$a], kill = [$a]);" +
+      "condition( succ = [body, END], liveIn = [x,a], liveOut = [], gen = [a,x], kill = [a]);" +
       "foo($a);" +
       "$a = $x + 1;" +
       "if (true) {" +
-      "  body( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [$x]);" +
+      "  body( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [x]);" +
       "  $x = 1;" +
       "}");
   }
@@ -92,14 +117,13 @@ public class LiveVariablesAnalysisTest extends PHPTreeModelTest {
   @Test
   public void test_do_while() {
     verifyLiveVariableAnalysis("" +
-      //"beforeDo( succ = [body], liveIn = [$x], liveOut = [$a], gen = [$x], kill = [$a]);" +
-      "beforeDo( succ = [body], liveIn = [], liveOut = [$a], gen = [], kill = [$a]);" +
+      "beforeDo( succ = [body], liveIn = [x], liveOut = [a], gen = [x], kill = [a]);" +
       "$a = $x + 1;" +
       "do {" +
-      "  body( succ = [cond], liveIn = [$a], liveOut = [$a], gen = [$a], kill = []);" +
+      "  body( succ = [cond], liveIn = [a], liveOut = [a], gen = [a], kill = []);" +
       "  foo ($a);" +
-      "} while(cond( succ = [body, afterDo], liveIn = [$a], liveOut = [$a], gen = [], kill = []) );" +
-      "afterDo( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [$a]);" +
+      "} while(cond( succ = [body, afterDo], liveIn = [a], liveOut = [a], gen = [], kill = []) );" +
+      "afterDo( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [a]);" +
       "$a = 0;");
   }
 
@@ -110,7 +134,7 @@ public class LiveVariablesAnalysisTest extends PHPTreeModelTest {
   private void verifyLiveVariableAnalysis(String argsList, String body) {
     CompilationUnitTree cut = parse("<?php function f(" + argsList + ") { " + body + " }", PHPLexicalGrammar.COMPILATION_UNIT);
     SymbolTableImpl symbolTable = SymbolTableImpl.create(cut);
-    FunctionDeclarationTree functionTree = (FunctionDeclarationTree)cut.script().statements().get(0);
+    FunctionDeclarationTree functionTree = (FunctionDeclarationTree) cut.script().statements().get(0);
     ControlFlowGraph cfg = ControlFlowGraph.build(functionTree.body());
     LiveVariablesAnalysis analysis = LiveVariablesAnalysis.analyze(cfg, symbolTable);
     Validator.assertLiveVariables(cfg, analysis);
