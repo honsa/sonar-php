@@ -22,7 +22,6 @@ package org.sonar.php.cfg;
 import com.google.common.collect.Sets;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -75,16 +74,18 @@ public class LiveVariablesAnalysis {
     return liveVariablesPerBlock;
   }
 
-  public enum VariableState {
+  public static enum VariableState {
+    NONE,
     WRITE,
-    READ
+    READ,
+    READ_WRITE
   }
 
   public static class LiveVariables {
 
     private final CfgBlock block;
     private final SymbolTable symbols;
-    private final Map<Tree, Map<Symbol, EnumSet<VariableState>>> usagesPerElement;
+    private final Map<Tree, Map<Symbol, VariableState>> usagesPerElement;
     // 'gen' or 'use' - variables that are being read in the block
     private final Set<Symbol> gen = new HashSet<>();
     // 'kill' or 'def' - variables that are being written (TODO before being read in the block)
@@ -110,7 +111,7 @@ public class LiveVariablesAnalysis {
       return out;
     }
 
-    public Map<Symbol, EnumSet<VariableState>> getUsages(Tree tree) {
+    public Map<Symbol, VariableState> getUsages(Tree tree) {
       return usagesPerElement.get(tree);
     }
 
@@ -149,21 +150,21 @@ public class LiveVariablesAnalysis {
         ReadWriteVisitor visitor = new ReadWriteVisitor(symbols);
         tree.accept(visitor);
 
-        Map<Symbol, EnumSet<VariableState>> usages = visitor.getState();
+        Map<Symbol, VariableState> usages = visitor.getState();
         usagesPerElement.put(tree, usages);
 
-        for (Map.Entry<Symbol, EnumSet<VariableState>> usage : usages.entrySet()) {
-          EnumSet<VariableState> state = usage.getValue();
+        for (Map.Entry<Symbol, VariableState> usage : usages.entrySet()) {
+          VariableState state = usage.getValue();
 
-          if (state.contains(VariableState.READ)) {
+          if (state == VariableState.READ || state == VariableState.READ_WRITE) {
             if (!killedVars.contains(usage.getKey())) {
               gen.add(usage.getKey());
             }
           }
 
-          if (state.contains(VariableState.WRITE)) {
+          if (state == VariableState.WRITE || state == VariableState.READ_WRITE) {
             kill.add(usage.getKey());
-            if (!state.contains(VariableState.READ)) {
+            if (state != VariableState.READ_WRITE) {
               killedVars.add(usage.getKey());
             }
           }
@@ -176,13 +177,13 @@ public class LiveVariablesAnalysis {
 
   private static class ReadWriteVisitor extends PHPVisitorCheck {
     private final SymbolTable symbols;
-    private final Map<Symbol, EnumSet<VariableState>> variables = new HashMap<>();
+    private final Map<Symbol, VariableState> variables = new HashMap<>();
 
     ReadWriteVisitor(SymbolTable symbols) {
       this.symbols = symbols;
     }
 
-    Map<Symbol, EnumSet<VariableState>> getState() {
+    Map<Symbol, VariableState> getState() {
       return variables;
     }
 
@@ -225,8 +226,20 @@ public class LiveVariablesAnalysis {
         return false;
       }
       Symbol varSym = symbols.getSymbol(tree);
-      EnumSet<VariableState> varStates = variables.computeIfAbsent(varSym, s -> EnumSet.noneOf(VariableState.class));
-      varStates.add(VariableState.WRITE);
+
+      variables.compute(varSym, (s, existingState) -> {
+        if (existingState == null) {
+          existingState = VariableState.NONE;
+        }
+        switch (existingState) {
+          case READ_WRITE:
+          case READ:
+            return VariableState.READ_WRITE;
+          default:
+            return VariableState.WRITE;
+        }
+      });
+
       return true;
     }
 
@@ -235,8 +248,18 @@ public class LiveVariablesAnalysis {
         return;
       }
       Symbol varSym = symbols.getSymbol(tree);
-      EnumSet<VariableState> varStates = variables.computeIfAbsent(varSym, s -> EnumSet.noneOf(VariableState.class));
-      varStates.add(VariableState.READ);
+      variables.compute(varSym, (s, existingState) -> {
+        if (existingState == null) {
+          existingState = VariableState.NONE;
+        }
+        switch (existingState) {
+          case READ_WRITE:
+          case WRITE:
+            return VariableState.READ_WRITE;
+          default:
+            return VariableState.READ;
+        }
+      });
     }
   }
 }
