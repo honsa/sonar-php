@@ -75,15 +75,16 @@ public class LiveVariablesAnalysis {
     return liveVariablesPerBlock;
   }
 
-  enum VariableState {
+  public enum VariableState {
     WRITE,
     READ
   }
 
-  static class LiveVariables {
+  public static class LiveVariables {
 
     private final CfgBlock block;
     private final SymbolTable symbols;
+    private final Map<Tree, Map<Symbol, EnumSet<VariableState>>> usagesPerElement;
     // 'gen' or 'use' - variables that are being read in the block
     private final Set<Symbol> gen = new HashSet<>();
     // 'kill' or 'def' - variables that are being written (TODO before being read in the block)
@@ -95,17 +96,22 @@ public class LiveVariablesAnalysis {
     LiveVariables(CfgBlock block, SymbolTable symbols) {
       this.block = block;
       this.symbols = symbols;
+      this.usagesPerElement = new HashMap<>();
       initialize();
     }
 
-    Set<Symbol> getIn() {
+    public Set<Symbol> getIn() {
       // TODO immutable
       return in;
     }
 
-    Set<Symbol> getOut() {
+    public Set<Symbol> getOut() {
       // TODO immutable
       return out;
+    }
+
+    public Map<Symbol, EnumSet<VariableState>> getUsages(Tree tree) {
+      return usagesPerElement.get(tree);
     }
 
     Set<Symbol> getGen() {
@@ -143,20 +149,22 @@ public class LiveVariablesAnalysis {
         ReadWriteVisitor visitor = new ReadWriteVisitor(symbols);
         tree.accept(visitor);
 
-        Map<Symbol, EnumSet<VariableState>> stateMap = visitor.getState();
-        for (Map.Entry<Symbol, EnumSet<VariableState>> variableWithState : stateMap.entrySet()) {
-          EnumSet<VariableState> state = variableWithState.getValue();
+        Map<Symbol, EnumSet<VariableState>> usages = visitor.getState();
+        usagesPerElement.put(tree, usages);
+
+        for (Map.Entry<Symbol, EnumSet<VariableState>> usage : usages.entrySet()) {
+          EnumSet<VariableState> state = usage.getValue();
 
           if (state.contains(VariableState.READ)) {
-            if (!killedVars.contains(variableWithState.getKey())) {
-              gen.add(variableWithState.getKey());
+            if (!killedVars.contains(usage.getKey())) {
+              gen.add(usage.getKey());
             }
           }
 
           if (state.contains(VariableState.WRITE)) {
-            kill.add(variableWithState.getKey());
+            kill.add(usage.getKey());
             if (!state.contains(VariableState.READ)) {
-              killedVars.add(variableWithState.getKey());
+              killedVars.add(usage.getKey());
             }
           }
 
