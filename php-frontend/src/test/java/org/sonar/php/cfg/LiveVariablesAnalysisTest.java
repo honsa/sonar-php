@@ -70,13 +70,65 @@ public class LiveVariablesAnalysisTest extends PHPTreeModelTest {
   @Test
   public void test_complex_reads_and_writes() {
     verifyLiveVariableAnalysis("" +
+      "block( succ = [END], liveIn = [a,b], liveOut = [], gen = [a,b], kill = []);" +
+      "$a[$b] = 1;");
+
+    // R, R
+    verifyLiveVariableAnalysis("" +
       "block( succ = [END], liveIn = [a], liveOut = [], gen = [a], kill = []);" +
       "read($a);" +
       "read($a);");
+
+    // RW, R
     verifyLiveVariableAnalysis("" +
-      "block( succ = [END], liveIn = [a], liveOut = [], gen = [a], kill = []);" +
+      "block( succ = [END], liveIn = [a], liveOut = [], gen = [a], kill = [a]);" +
       "$a = read($a);" +
       "read($a);");
+
+    // RW, W
+    verifyLiveVariableAnalysis("" +
+      "block( succ = [END], liveIn = [a], liveOut = [], gen = [a], kill = [a]);" +
+      "$a = read($a);" +
+      "$a = 1;");
+
+    // R, W
+    verifyLiveVariableAnalysis("" +
+      "block( succ = [END], liveIn = [a], liveOut = [], gen = [a], kill = [a]);" +
+      "read($a);" +
+      "$a = 1;");
+
+    // W, R
+    verifyLiveVariableAnalysis("" +
+      "block( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [a]);" +
+      "$a = 1;" +
+      "read($a);");
+
+    // W, W
+    verifyLiveVariableAnalysis("" +
+      "block( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [a]);" +
+      "$a = 1;" +
+      "$a = 1;");
+
+    // R, W, R
+    verifyLiveVariableAnalysis("" +
+      "block( succ = [END], liveIn = [a], liveOut = [], gen = [a], kill = [a]);" +
+      "read($a);" +
+      "$a = 1;" +
+      "read($a);");
+
+    // R, RW, R
+    verifyLiveVariableAnalysis("" +
+      "block( succ = [END], liveIn = [a], liveOut = [], gen = [a], kill = [a]);" +
+      "read($a);" +
+      "$a = read($a);" +
+      "read($a);");
+
+    // W, R, W
+    verifyLiveVariableAnalysis("" +
+      "block( succ = [END], liveIn = [], liveOut = [], gen = [], kill = [a]);" +
+      "$a = 1;" +
+      "read($a);" +
+      "$a = 1;");
   }
 
   @Test

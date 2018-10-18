@@ -19,7 +19,6 @@
  */
 package org.sonar.php.cfg;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -33,16 +32,9 @@ import org.sonar.plugins.php.api.symbols.SymbolTable;
 import org.sonar.plugins.php.api.tree.Tree;
 import org.sonar.plugins.php.api.tree.declaration.VariableDeclarationTree;
 import org.sonar.plugins.php.api.tree.expression.ArrayAssignmentPatternElementTree;
-import org.sonar.plugins.php.api.tree.expression.ArrayInitializerBracketTree;
-import org.sonar.plugins.php.api.tree.expression.ArrayInitializerFunctionTree;
-import org.sonar.plugins.php.api.tree.expression.ArrayInitializerTree;
-import org.sonar.plugins.php.api.tree.expression.ArrayPairTree;
 import org.sonar.plugins.php.api.tree.expression.AssignmentExpressionTree;
-import org.sonar.plugins.php.api.tree.expression.ExpressionTree;
-import org.sonar.plugins.php.api.tree.expression.FunctionCallTree;
 import org.sonar.plugins.php.api.tree.expression.UnaryExpressionTree;
 import org.sonar.plugins.php.api.tree.expression.VariableIdentifierTree;
-import org.sonar.plugins.php.api.tree.statement.ExpressionStatementTree;
 import org.sonar.plugins.php.api.visitors.PHPVisitorCheck;
 
 public class LiveVariablesAnalysis {
@@ -155,23 +147,17 @@ public class LiveVariablesAnalysis {
         for (Map.Entry<Symbol, EnumSet<VariableState>> variableWithState : stateMap.entrySet()) {
           EnumSet<VariableState> state = variableWithState.getValue();
 
-          if (state.size() == 2) {
+          if (state.contains(VariableState.READ)) {
             if (!killedVars.contains(variableWithState.getKey())) {
               gen.add(variableWithState.getKey());
             }
           }
 
-          if (state.size() == 1 && state.contains(VariableState.READ)) {
-            if (!killedVars.contains(variableWithState.getKey())) {
-              gen.add(variableWithState.getKey());
-            }
-          }
-
-          if (state.contains(VariableState.WRITE) &&
-            !state.contains(VariableState.READ)) {
-
+          if (state.contains(VariableState.WRITE)) {
             kill.add(variableWithState.getKey());
-            killedVars.add(variableWithState.getKey());
+            if (!state.contains(VariableState.READ)) {
+              killedVars.add(variableWithState.getKey());
+            }
           }
 
         }
@@ -194,7 +180,9 @@ public class LiveVariablesAnalysis {
 
     @Override
     public void visitAssignmentExpression(AssignmentExpressionTree tree) {
-      visitAssignedVariable(tree.variable());
+      if (!visitAssignedVariable(tree.variable())) {
+        tree.variable().accept(this);
+      }
       tree.value().accept(this);
     }
 
@@ -242,28 +230,5 @@ public class LiveVariablesAnalysis {
       EnumSet<VariableState> varStates = variables.computeIfAbsent(varSym, s -> EnumSet.noneOf(VariableState.class));
       varStates.add(VariableState.READ);
     }
-
-    // are the below necessary at all? we're doing this in visitVariableIdentifier
-    /*
-     * @Override
-     * public void visitArrayInitializerFunction(ArrayInitializerFunctionTree tree) {
-     * visitArrayInitializer(tree);
-     * super.visitArrayInitializerFunction(tree);
-     * }
-     * 
-     * @Override
-     * public void visitArrayInitializerBracket(ArrayInitializerBracketTree tree) {
-     * visitArrayInitializer(tree);
-     * super.visitArrayInitializerBracket(tree);
-     * }
-     * 
-     * private void visitArrayInitializer(ArrayInitializerTree arrayInitializer) {
-     * for (ArrayPairTree arrayPair : arrayInitializer.arrayPairs()) {
-     * 
-     * visitReadVariable(arrayPair.key());
-     * visitReadVariable(arrayPair.value());
-     * }
-     * }
-     */
   }
 }
